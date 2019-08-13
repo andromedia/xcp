@@ -8,7 +8,7 @@
 # Utility to produce multiple metadata reports after a single scan, because scanning a tree with
 # hundreds of millions of files could take a very long time and could impact storage performance.
 # Each report is based on a filter.  The list of filters is provided in a text file with a filter
-# on each line, using the -filters filename.txt option.
+# on each line, using the -filters option.
 # This utility is meant to be run by xcp's built-in python 2.7 interpreter, e.g. "xcp diag -run mrep.py"
 # The mrep command is implemented as a command runner task, MrepScan, which runs in the main process,
 # and a BatchTask for the worker processes to count the files and dirs and get stats for the filters.
@@ -37,12 +37,12 @@ if __name__ == '__main__':
 	import sys
 	sys.exit()
 
-# - Python imports
+# Python imports
 import os
 import io
 import json
 
-# - Modules from the xcp engine -
+# Modules from the xcp engine
 import rd
 import xcp
 import scan
@@ -100,12 +100,12 @@ class MrepScan(command.Runner):
 			try:
 				cmd.options.filters.append(xfilter.Filter(t.strip(), self.engine.osCache, name=name))
 			except Exception as e:
-				raise sched.ShortError('Error in filter <{}>: {}'.format(s, str(e)))
+				raise sched.ShortError('Error in filter <{}>: {}'.format(s, e))
 			# Create a TreeStats object here in the main process 
 			# to merge the results for this filter from the child batches
 			self.treeStatsList.append(rd.TreeStats())
 
-		# Allow the -newid option to create an offline index in the catalog,
+		# Allow the -newid option to create an offline index in the catalog
 		index = None
 		newtag = cmd.options.get(repo.newtagOption)
 		if newtag:
@@ -162,16 +162,16 @@ class MrepScan(command.Runner):
 			#print report.getReport(xcpInfo, treeInfo, filters=True)
 
 	# For each completed batch, the xcp scan engine will call this function in the main process
-	def finishedBatch(self, batch, br, actions):
-		for ts, brts in zip(self.treeStatsList, br.treeStatsList):
+	def finishedBatch(self, batch, batchResult, actions):
+		for ts, brts in zip(self.treeStatsList, batchResult.treeStatsList):
 			ts.update(brts)
 
 # Each BatchTask runs in a worker process which sends the results back to the main scanner
 class BatchTask(sched.SimpleTask):
-	def gRun(self, batch, br):
+	def gRun(self, batch, batchResult):
 		# For this batch of scanned files and dirs, get the stats for each filter
 		# Different filters can count or exclude different files and dirs
-		br.treeStatsList = []
+		batchResult.treeStatsList = []
 		for f in self.engine.options.filters:
 			ts = rd.TreeStats()
 			files = filter(f.check, batch.files)
@@ -179,7 +179,7 @@ class BatchTask(sched.SimpleTask):
 			ts.stats[rd.Stats.NotMatched] = (len(batch.files) + len(batch.dirs)) - (len(files) + len(dirs))
 			ts.count(files, batch.tree.when)
 			ts.count(dirs, batch.tree.when)
-			br.treeStatsList.append(ts)
+			batchResult.treeStatsList.append(ts)
 
 			# Save the histogram table counts in the treestats object's stats counter
 			# This is because the tables have cython fields and at the time cython extension types
