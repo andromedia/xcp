@@ -1,3 +1,6 @@
+# Copyright (c) 2019 NetApp Inc. - All Rights Reserved
+# This sample code is provided AS IS, with no support or warranties of any kind, including but not limited to warranties of merchantability or fitness of any kind, expressed or implied.
+#
 # Utility to diagnose and repair missing ancestry info in a completed xcp sync index
 # This is a temporary workaround for syncs which fail with bug 1246734 "missing parent"
 # The batch rebuilding is based on the diag rebuild command and the rebuild tasks in idx,
