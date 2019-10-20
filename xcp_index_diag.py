@@ -277,7 +277,7 @@ class RunIndexDiag(command.Runner):
 		self.log.log("index diagnostics phase 1 (Diagnosing)", out=True)
 		yield (IndexDiag(index, None, Diagnosing), None)
 
-		# Index pass is done.  Report what we found and save it
+		# Index pass is done.  Report what we found
 		self.log.log("  total missing {}".format(len(index.missingDirs)), out=True)
 
 		## Phase 2: Locating ##
