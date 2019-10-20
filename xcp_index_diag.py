@@ -98,7 +98,7 @@ class DiagnoseBatch(IndexDiagBatch):
 		self.name = "diagnose mb {}".format(idx.getName(batches))
 		if 0:
 			# Even though the condition is false,
-			# this yield makes gRebuild a generator
+			# this yield makes gRun a generator
 			yield
 
 		missing = set()
