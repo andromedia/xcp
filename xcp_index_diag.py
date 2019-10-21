@@ -69,11 +69,6 @@ rebuildOption = args.OptionInfo('-rebuild', 'create new index')
 replaceOption = args.OptionInfo('-replace', 'replace original index after rebuilding it')
 tryMissingOption = args.OptionInfo('-trymissing', 'test code by diagnosing dirs as missing even if they are not', hidden=True)
 
-# 3 passes through the index
-Diagnosing = 1,
-Locating = 2,
-Rebuilding = 3,
-
 # These are supposed to display during the index scan phases, for big indexes
 Stats = ["missing", "located", "gotAncestry"]
 
@@ -201,18 +196,11 @@ class RebuildBatch(IndexDiagBatch):
 # The ofile can be None for the Diagnosing and Locating phases; they just add
 # information to index.missingDirs, index.locatedDirs, index.gotAncestry, index.ancestries
 class IndexDiag(sched.SimpleTask):
-	def gRun(self, index, ofile, phase):
+	def gRun(self, index, ofile, batchTaskClass):
 		self.name = "read index id '{}'".format(index.name)
 
 		# Create a tube to receive results from batch processing tasks as they finsh
 		myEnd, otherEnd = sched.Tube("diff").ends
-
-		if phase == Diagnosing:
-			batchTaskClass = DiagnoseBatch
-		elif phase == Locating:
-			batchTaskClass = LocateBatch
-		elif phase == Rebuilding:
-			batchTaskClass = RebuildBatch
 
 		idx.ProcessBatches(index, batchTaskClass, otherEnd)
 
@@ -230,13 +218,13 @@ class IndexDiag(sched.SimpleTask):
 			except idx.EndOfIndex:
 				break
 
-			if phase == Rebuilding:
+			if batchTaskClass == RebuildBatch:
 				newbh, newbd = result
 				batchData = idx.encodeIndexBatch(newbh, None, newbd)
 				yield (rw.AppendTask(ofile, batchData), None)
-			elif phase == Diagnosing:
+			elif batchTaskClass == DiagnoseBatch:
 				index.missingDirs.update(result)
-			elif phase == Locating:
+			elif batchTaskClass == LocateBatch:
 				(located, gotAncestry, ancestries) = result
 				index.locatedDirs.update(located)
 				index.gotAncestry.update(gotAncestry)
@@ -244,7 +232,7 @@ class IndexDiag(sched.SimpleTask):
 
 			myEnd.send(1)
 
-		if phase == Rebuilding:
+		if batchTaskClass == RebuildBatch:
 			(trailer, tdata) = idx.getTrailer("sync trailer")
 			yield (rw.AppendTask(ofile, tdata), None)
 
@@ -275,7 +263,7 @@ class RunIndexDiag(command.Runner):
 		## Phase 1: Diagnosing ##
 		# Read the index and process the batches
 		self.log.log("index diagnostics phase 1 (Diagnosing)", out=True)
-		yield (IndexDiag(index, None, Diagnosing), None)
+		yield (IndexDiag(index, None, DiagnoseBatch), None)
 
 		# Index pass is done.  Report what we found
 		self.log.log("  total missing {}".format(len(index.missingDirs)), out=True)
@@ -283,7 +271,7 @@ class RunIndexDiag(command.Runner):
 		## Phase 2: Locating ##
 		self.log.log("\n", out=True)
 		self.log.log("index diagnostics phase 2 (Locating)", out=True)
-		yield (IndexDiag(index, None, Locating), None)
+		yield (IndexDiag(index, None, LocateBatch), None)
 		self.log.log("  total missing {} located {} gotAncestry {} ancestries {}".format(
 			len(index.missingDirs), len(index.locatedDirs), len(index.gotAncestry), len(index.ancestries)), out=True)
 
@@ -299,17 +287,18 @@ class RunIndexDiag(command.Runner):
 
 		# Create the output file, read the index and process the batches
 		rebuiltIndexf = yield (client.CreateTask(index.tagd, rebuiltIndexName, sattr=nfs3.Sattr3(mode=0700, size=0)), None)
-		yield (IndexDiag(index, rebuiltIndexf, Rebuilding), None)
+		yield (IndexDiag(index, rebuiltIndexf, RebuildBatch), None)
 
-		backupName = index.indexf.name + '.ORIG'
 		oldSize = (yield (client.OpenTask(index.tagd, index.indexf.name), None)).a.size
 		newSize = (yield (client.OpenTask(index.tagd, rebuiltIndexName), None)).a.size
 		self.log.log("  sizes: old index {}; new index {}".format(basics.formatSize(oldSize), basics.formatSize(newSize)), out=True)
+
 		if not self.options.chose(replaceOption):
 			self.log.log("  not replacing.  use -rebuild -replace to rebuild the index and replace it", out=True)
 			return
 
 		# Make a backup
+		backupName = index.indexf.name + '.ORIG'
 		self.log.log("  creating backup of existing index - mv {index.indexf} to {backupName}".format(**vars()), out=True)
 		yield (index.tagd.rename(index.indexf.name, index.tagd.fh, backupName), None)
 		if index.renamef:
@@ -320,6 +309,7 @@ class RunIndexDiag(command.Runner):
 		# Replace the index with the rebuilt
 		self.log.log("  Renaming {rebuiltIndexName} to {index.indexf}".format(**vars()), out=True)
 		yield (index.tagd.rename(rebuiltIndexName, index.tagd.fh, index.indexf.name), None)
+		self.log.log("To validate, run the following command.  If it completes without errors, the index metadata is ok: \nxcp -id <idname> -match 'x.getPath()==1'", out=True)
 
 indexDiagDesc = command.Desc(
 	"indexdiag",
