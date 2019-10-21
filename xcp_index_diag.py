@@ -123,7 +123,7 @@ class DiagnoseBatch(IndexDiagBatch):
 		# (any python objects are fine; however our cython objects such as File3 are not)
 		self.results = missing
 
-# If full ancestry of the filehandle is available then return it all in a list
+# If full ancestry of the filehandle is available then return it all in a dict
 # Returns either the complete ancestry in a dict, or None
 def fullAncestry(dfh, ancestry):
 	dirs = {}
