@@ -309,7 +309,7 @@ class RunIndexDiag(command.Runner):
 		# Replace the index with the rebuilt
 		self.log.log("  Renaming {rebuiltIndexName} to {index.indexf}".format(**vars()), out=True)
 		yield (index.tagd.rename(rebuiltIndexName, index.tagd.fh, index.indexf.name), None)
-		self.log.log("To validate, run the following command.  If it completes without errors, the index metadata is ok: \nxcp -id <idname> -match 'x.getPath()==1'", out=True)
+		self.log.log("To validate, run the following command.  If it completes without errors, the index metadata is ok: \nxcp -id {} -match 'x.getPath()==1'".format(index.name), out=True)
 
 indexDiagDesc = command.Desc(
 	"indexdiag",
