@@ -246,7 +246,7 @@ class RunIndexDiag(command.Runner):
 		# missingDirs is a set of filehandles
 		# locatedDirs is a mapping of those filehandles to index tuples (i.e. full metadata about the dir)
 		# gotAncestry is a set of handles for which we found full ancestry; hopefully all locatedDirs have full ancestry too
-		# ancestries is a mapping from located dir handles to lists of their index tuples back to the root
+		# ancestries is a mapping from dir handles to index tuples, for located dirs and their parents back to the root
 		# The rebuild phase will add the ancestries back into each multibatch so they are not missing anymore
 		# We track the locatedDirs and gotAncesty separately so they can be counted and compared to missingDirs;
 		# It is possible that some might not have full ancestries found anywhere which would be annoying
