@@ -25,24 +25,26 @@
 # TODO:
 # - Redesign the xcp log format to be more standard, and use better tools to parse the logs instead
 
+import os
 import re
 import time
+import datetime
+from collections import Counter, OrderedDict
 
 import xcp
 import repo
 import sched
 import basics
 import command
-import datetime
 import parseargs as args
-from collections import Counter, OrderedDict
 
+# xcp diag -run xlog.py will run us here
 def run(argv):
 	xcp.xcp(argv)
 
 logFileOption = args.OptionInfo('-f', 'logfile', args.Types.String, arg='fspath', default=repo.getXcpLogPath())
 lineNumbersOption = args.OptionInfo('-n', 'print line numbers')
-longOption = args.OptionInfo('-l', 'print source, target, error message for each command')
+longOption = args.OptionInfo('-l', 'include source, target, and any fatal error message for each command')
 
 class LogInfo(object):
 	def __init__(self, options):
@@ -87,12 +89,28 @@ class Entry(object):
 		elif fields[0] == 'XCP':
 			# XCP 1.3-5f6c0b4; (c) 2019 NetApp, Inc.; Licensed to ...
 			self.banner = True
+		# These are miscellaneous kinds of lines in the log that we just ignore for now
+		# Here are examples from real logs, of what the following 'or ... or ... pass' code is ignoring
+		# These are things like extra xcp diagnostic info, python stack tracebacks, nfs retries, etc:
+		#   172.20.28.50 tcp 2049 nfs3 c0 (pending 0, sendq 0, slotq 0, closed False, reopenTask None) stats: {'replies received': 6628, 'partials': 204, 'moved': 38784, 'nospace': 0}
+		#   Build date: Thu Sep 19 01:25:50 PDT 2019
+		#   pending xid 0x58a3d04c nfs3 MKDIR 'TJ3848500001' in 'mm2nv00201:/mm2c02s01p04/TG_DR7/dss_prod1_s2/dss/LB57/data/SICOMPLETED/DH20101021/PF384850' now 1555616052.83 duetime 1555616112.73 (59.9) self.lastCheck 1555616048.49 (-4.3) sched.getTime 1555616052.73 (-0.1)
+		#   File "nfs3.pyx", line 289, in nfs3.Client.setattr3 (nfs3.c:5646)
+		#   Failed with 'socket connect to 'edimaxfiler tcp 111 pmap2 c0': [Errno -2] Name or service not known'
+		# This utility to summarize the log certainly could understand and summarize all those things;
+		# but for now it ignores them:
 		elif line[:16] == 'RPC channel dump' \
 		 or ' stats: {' in line \
-		 or fields[0] == 'Build':
+		 or fields[0] == 'Build' \
+		 or ' '.join(fields[:2]) == 'pending xid' \
+		 or 'File "' in ' '.join(fields[0:2]) \
+		 or fields[1] == 'setattr3()' \
+		 or ' '.join(fields[:2]) == '(c) 2019'\
+		 or ' '.join(fields[:4]) == 'Register for a license'\
+		 or "Failed with 'socket connect" in ' '.join(fields[0:5]):
 			pass
 		else:
-			print('xlog: warning: parser unimplemented for line {i}: {line}'.format(**vars()))
+			print('xlog: parser unimplemented; ignoring unknown line {i}: {line}'.format(**vars()))
 		self.fields = fields
 
 # Recreate dictionaries from strings in the log that look like these:
@@ -142,11 +160,12 @@ class LoggedCommand(object):
 		self.duration = ''
 
 	def checkid(self):
-		# Find out if the verify exactly matches a copy,
-		# or matches the copy and its target
-		# or matches a sync -snap and its target,
-		# or reverse-matches one of the above.
+		# Find out if the verify exactly matches the
+		# source and target of a copy or a sync,
+		# or a sync -snap and its target,
+		# or a reverse-verify match for one of the above
 		if self.name == 'verify':
+			# TODO: this is a quadratic algorithm; fix that
 			for cmd in self.logInfo.commands.values():
 				if cmd.name not in ('copy', 'sync') \
 				 or cmd.entry.i >= self.entry.i:
@@ -168,7 +187,7 @@ class LoggedCommand(object):
 
 	def __str__(self):
 
-		s = "{:{keywidth}}  {:1}  {:>7} ago ({}) {:>7};  {:{idwidth}}".format(
+		s = "{:{keywidth}}  {:1}  {:>7} ago ({}) {:>7}  {:{idwidth}}".format(
 			self.key,
 			self.failure and 'E' or '.',
 			self.age,
@@ -180,9 +199,8 @@ class LoggedCommand(object):
 		)
 		if self.name == 'verify':
 			s = s.rstrip() + '  '
-			#s += str(self.paths)
 			if self.match:
-				k = self.reversed and self.match.key + ' reversed' or self.match.key
+				k = self.reversed and (self.match.key + ' reversed') or self.match.key
 				s += "({})".format(k)
 		if '-snap' in self.cmdOptions:
 			s += "; -snap {}".format(self.cmdOptions['-snap'])
@@ -198,10 +216,20 @@ class Runxlog(command.Runner):
 			print("logPath: {}".format(logPath))
 		else:
 			logPath = repo.getXcpLogPath()
+
 		print('reading from: {}'.format(logPath))
-		print('logging to: {}'.format(self.log.f))
+		# Not logging anything for now, but we could
+		# self.log.f is usually going to be /opt/NetApp/xFiles/xcp/xcp.x1.log
+		#print('logging to: {}'.format(self.log.f))
 
 		# Create a simple Entry object for each nonempty line in the log
+		# TODO: check size of file and print this if it's a big one
+
+		# If it's bigger than 50MB, let them know
+		size = os.path.getsize(logPath)
+		if size > (50<<20):
+			print("parsing log entries (this could take a while; the log file is {})...".format(basics.formatSize(size)))
+
 		with open(logPath) as f:
 			entries = [Entry(line.strip(), i) for i, line in enumerate(f.readlines(), 1) if line]
 
@@ -213,6 +241,7 @@ class Runxlog(command.Runner):
 		# a few more loops through the commands are done to get some extra info
 		cmd = None
 		engineInfo = None
+
 		for e in entries:
 			if e.fields[0] == 'Command:':
 				# Example
@@ -285,7 +314,7 @@ class Runxlog(command.Runner):
 			nameWidth = max(len(name), nameWidth)
 
 		for name, d in logInfo.indexes.items():
-			print('{:{nameWidth}}, {}, {}'.format(name, d['source'], d.get('target', ''), nameWidth=nameWidth))
+			print('{:{nameWidth}}  {}, {}'.format(name, d['source'], d.get('target', ''), nameWidth=nameWidth))
 
 		print
 		print('== Commands ==')
