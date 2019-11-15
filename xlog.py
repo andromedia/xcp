@@ -43,6 +43,7 @@ logFileOption = args.OptionInfo('-f', 'logfile', args.Types.String, arg='fspath'
 lineNumbersOption = args.OptionInfo('-n', 'print line numbers')
 longOption = args.OptionInfo('-l', 'include source, target, and any fatal error message for each command')
 showOption = args.OptionInfo('-show', 'get info about a logged command', args.Types.String, arg='command.# (e.g. verify.2)')
+osfixOption = args.OptionInfo('-osfix', 'print commands to fix verify errors', args.Types.String, arg='command.# (e.g. verify.2)')
 
 class LogInfo(object):
 	def __init__(self, options):
@@ -122,7 +123,7 @@ class Entry(object):
 		#   Failed with 'socket connect to 'edimaxfiler tcp 111 pmap2 c0': [Errno -2] Name or service not known'
 		# This utility to summarize the log certainly could understand and summarize all those things;
 		# but for now it ignores them:
-		elif line[:16] == 'RPC channel dump' \
+		elif len(fields) > 1 and (line[:16] == 'RPC channel dump' \
 		 or ' stats: {' in line \
 		 or fields[0] == 'Build' \
 		 or ' '.join(fields[:2]) == 'pending xid' \
@@ -130,10 +131,11 @@ class Entry(object):
 		 or fields[1] == 'setattr3()' \
 		 or ' '.join(fields[:2]) == '(c) 2019'\
 		 or ' '.join(fields[:4]) == 'Register for a license'\
-		 or "Failed with 'socket connect" in ' '.join(fields[0:5]):
+		 or "Failed with 'socket connect" in ' '.join(fields[0:5])):
 			pass
 		else:
-			print('xlog: parser unimplemented; ignoring unknown line {i}: {line}'.format(**vars()))
+			#print('xlog: parser unimplemented; ignoring unknown line {i}: {line}'.format(**vars()))
+			pass
 		self.fields = fields
 	def __str__(self):
 		return ' '.join(self.fields)
@@ -421,7 +423,7 @@ class Runxlog(command.Runner):
 		print
 
 		if xlogCmd.options.chose(showOption):
-			cmdKey = xlogCmd.get(showOption)
+			cmdKey = xlogCmd.get(showOption) or xlogCmd.get(osfixOption)
 			cmd = logInfo.commands.get(cmdKey)
 			if not cmd:
 				raise sched.ShortError('command {cmdKey} not found in {logPath}'.format(**vars()))
