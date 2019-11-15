@@ -2,11 +2,8 @@
 # This sample code is provided AS IS, with no support or warranties of any kind, including but not limited to warranties of merchantability or fitness of any kind, expressed or implied.
 #
 # Utility to extract info from the xcp log, report on commands/errors/warnings,
-# and suggest commands to repair verification differences on copy/sync targets.
 # Please note the log file format could change at any time and break this script
 #
-# Target repair options are experimental and for expert use only;
-# consultation with NetApp support is strongly recommended.
 
 # Updates: 
 #   7 November 2019 - created (Peter Schay)
@@ -23,7 +20,7 @@
 # so the age numbers shown will be off if running this utility in a different timezone
 #
 # TODO:
-# - Redesign the xcp log format to be more standard, and use better tools to parse the logs instead
+# - Redesign the xcp log format to be more standard, so better tools can parse the logs
 
 import os
 import re
@@ -45,6 +42,7 @@ def run(argv):
 logFileOption = args.OptionInfo('-f', 'logfile', args.Types.String, arg='fspath', default=repo.getXcpLogPath())
 lineNumbersOption = args.OptionInfo('-n', 'print line numbers')
 longOption = args.OptionInfo('-l', 'include source, target, and any fatal error message for each command')
+showOption = args.OptionInfo('-show', 'get info about a logged command', args.Types.String, arg='command.# (e.g. verify.2)')
 
 class LogInfo(object):
 	def __init__(self, options):
@@ -55,16 +53,36 @@ class LogInfo(object):
 		self.counts = Counter()
 		self.indexes = OrderedDict()
 
+		self.keyWidth = 1
+		self.idWidth = 1
+		self.warnWidth = 1
+		self.ageWidth = 1
+		self.durationWidth = 1
+
+	def getWidths(self):
+		# For console format output, get the max width of some of the columns
+		# so that multiple commands are lined up
+		for cmd in self.commands.values():
+			self.keyWidth = max(len(cmd.key), self.keyWidth)
+			self.idWidth = max(len(cmd.idName), self.idWidth)
+			self.ageWidth = max(len(cmd.age), self.ageWidth)
+			self.durationWidth = max(len(cmd.duration), self.durationWidth)
+			if cmd.warnings:
+				self.warnWidth = max(len(cmd.wcountstr()), self.warnWidth)
+
 # Get basic info for each line in the log
 # Line number, raw line text, timestamp
 class Entry(object):
 	def __init__(self, line, i):
 		self.i = i
 		self.line = line
+
 		fields = line.split(' ')
 		self.xcp = False
 		self.banner = False
 		self.child = None
+		self.warning = False
+		self.error = False
 
 		if not line:
 			return
@@ -86,6 +104,11 @@ class Entry(object):
 			if fields[0] == 'xcp:' or ' '.join(fields[:2]) == 'xcp ERROR:':
 				self.xcp = True
 				fields = fields[1:]
+			elif ' WARNING: ' in line:
+				self.fields = fields
+				self.warning = Warning(self)
+				self.xcp = True
+
 		elif fields[0] == 'XCP':
 			# XCP 1.3-5f6c0b4; (c) 2019 NetApp, Inc.; Licensed to ...
 			self.banner = True
@@ -112,6 +135,55 @@ class Entry(object):
 		else:
 			print('xlog: parser unimplemented; ignoring unknown line {i}: {line}'.format(**vars()))
 		self.fields = fields
+	def __str__(self):
+		return ' '.join(self.fields)
+
+class Warning(object):
+	def __init__(self, entry):
+		self.entry = entry
+		self.ignore = False
+		self.fspath = None
+		self.fspathParent = None
+		self.whichAttrs = None
+		self.x = None
+
+		if 'your license will expire' in entry.line:
+			self.ignore = True
+
+		line = ' '.join(self.entry.fields)
+
+		self.name = self.entry.fields[0] # cmpdir or compare1
+		if 'different attrs' in line:
+			# Line looks like one of these:
+			# cmpdir 'dirname' WARNING: 172.20.28.50:/NS/.snapshot/snapname/subdir/dirname: different attrs (Mtime)
+			# compare1 'filename' WARNING: 172.20.28.50:/NS/.snapshot/snapname/subdir/filename: different attrs (Mtime,Size)
+
+			# Category will look like
+			# 'cmpdir: (Owner,Group)' or 'compare1: (Mtime)'
+			self.x = self.entry.fields[3][:-1] # strip the : from the end
+			attrs = self.entry.fields[-1]
+			self.whichAttrs = attrs[1:-1].split(',')
+			self.category = self.name + ': ' + self.entry.fields[-1]
+		elif (self.name == 'rd' and 'LOOKUP' in self.entry.fields and "'_XCP_tmp'" in self.entry.fields) \
+		 or 'file not found' in line:
+			# Line looks like:
+			# compare1 'filename' WARNING: (error) source file not found on target: nfs3 LOOKUP 'filename' in '172.20.28.55:/data/subdir': nfs3 error 2: no such file or directory
+
+			# 'compare1: not found'
+			i = self.entry.fields.index('LOOKUP')
+			fname = self.entry.fields[i+1][1:-1] # strip quotes
+			dname = self.entry.fields[i+3][1:-1]
+			dname = dname.rstrip("'")
+			self.x = dname + '/' + fname
+			self.category = self.name + ': not found'
+		else:
+			self.x = None
+			self.category = self.name
+
+	@property
+	def text(self):
+		return ' '.join(self.entry.fields)
+
 
 # Recreate dictionaries from strings in the log that look like these:
 #  {-id: 'autoname_copy_2019-08-17_03.56.47.773764', -snap: '172.20.28.50:/NS/.snapshot/xcp_presync_11012019'}
@@ -130,6 +202,7 @@ class LoggedCommand(object):
 		self.name = entry.fields[1]
 		self.paths = []
 		self.idName = ''
+		self.warnings = []
 		if self.name == 'sync' and entry.fields[2] == 'dry-run':
 			self.name += '.dry-run'
 			self.cmdOptions = parseDict(' '.join(entry.fields[3:]))
@@ -147,6 +220,7 @@ class LoggedCommand(object):
 		# and it would be best to just redesign the log so it can
 		# be parsed and analyzed by real tools
 		self.failure = 0
+		self.finalStatus = None
 
 		# For verify, figure out if it matches the source and target of a copy or sync
 		self.match = None
@@ -185,45 +259,79 @@ class LoggedCommand(object):
 					self.match = cmd
 					self.reversed = True
 
-	def __str__(self):
+	# console format for summary line
+	def wcountstr(self):
+		return '{}W'.format(len(self.warnings))
 
-		s = "{:{keywidth}}  {:1}  {:>7} ago ({}) {:>7}  {:{idwidth}}".format(
+	# For now just output a row of basic info
+	# TODO: support different formats
+	def fmt(self, long=False, html=False, csvfmt=False):
+		if html:
+			print "html not implemented yet"
+			return
+		if csvfmt:
+			print "html not implemented yet"
+			return
+		
+		if self.warnings:
+			nwstr = self.wcountstr()
+		else:
+			nwstr = '.'
+
+		delim = '  '
+		s = "{:{keywidth}}{delim}{:1}{delim}{:>{ageWidth}} ago ({}){delim}{:>{durationWidth}}{delim}"\
+			"{:{idwidth}}{delim}{:>{warnWidth}}".format(
 			self.key,
 			self.failure and 'E' or '.',
+			# The age of the command is how long ago it started (not finished)
+			# Note: If you're on the west coast and get a log from the east coast,
+			# the age could be in the future, e.g. '+2h5m ago'
 			self.age,
 			time.strftime(basics.format, self.entry.t),
 			self.duration,
 			self.idName,
+			nwstr,
 			keywidth=self.logInfo.keyWidth,
 			idwidth=self.logInfo.idWidth,
+			warnWidth=self.logInfo.warnWidth,
+			delim=delim,
+			ageWidth=self.logInfo.ageWidth,
+			durationWidth=self.logInfo.durationWidth,
 		)
+
 		if self.name == 'verify':
-			s = s.rstrip() + '  '
+			s = s.rstrip() + delim
 			if self.match:
 				k = self.reversed and (self.match.key + ' reversed') or self.match.key
-				s += "({})".format(k)
+				s += "(src+target match {})".format(k)
+
 		if '-snap' in self.cmdOptions:
-			s += "; -snap {}".format(self.cmdOptions['-snap'])
+			s += delim + "-snap {}".format(self.cmdOptions['-snap'])
 		if self.logInfo.options.chose(lineNumbersOption):
 			s = '{}: '.format(self.entry.i) + s
+		if long:
+			s += delim + str(self.failure or self.finalStatus)
+
 		return s
+
+	def __str__(self):
+		return self.fmt()
 
 class Runxlog(command.Runner):
 	def gRun(self, xlogCmd, catalog):
 		logInfo = LogInfo(xlogCmd.options)
 		if xlogCmd.options.chose(logFileOption):
 			logPath = self.options.get(logFileOption)
-			print("logPath: {}".format(logPath))
 		else:
 			logPath = repo.getXcpLogPath()
 
 		print('reading from: {}'.format(logPath))
+
 		# Not logging anything for now, but we could
 		# self.log.f is usually going to be /opt/NetApp/xFiles/xcp/xcp.x1.log
 		#print('logging to: {}'.format(self.log.f))
 
 		# Create a simple Entry object for each nonempty line in the log
-		# TODO: check size of file and print this if it's a big one
 
 		# If it's bigger than 50MB, let them know
 		size = os.path.getsize(logPath)
@@ -253,6 +361,10 @@ class Runxlog(command.Runner):
 				# Example
 				# xcp 2019-11-04 16:37:11 xcp: Paths: ['172.20.28.50:/NS/.snapshot/xcp_presync_11012019', '172.20.28.55:/data']
 				cmd.paths = eval(''.join(e.fields[1:3]))
+
+			elif e.warning:
+				if cmd:
+					cmd.warnings.append(e.warning)
 
 			elif e.fields[0] == 'Index:':
 				# The index has the source and target (or just source for a scan-only index)
@@ -284,17 +396,16 @@ class Runxlog(command.Runner):
 				# Anyway this seems to work but certainly needs more validation
 				if cmd.entries[-1].fields[0] == 'ERROR:':
 					cmd.failure = cmd.entries[-1]
+				else:
+					cmd.finalStatus = cmd.entries[-1]
 				engineInfo = 1
 
 			if cmd:
 				cmd.entries.append(e)
 
-		logInfo.keyWidth = 0
-		logInfo.idWidth = 0
-		for cmd in logInfo.commands.values():
-			logInfo.keyWidth = max(len(cmd.key), logInfo.keyWidth)
-			logInfo.idWidth = max(len(cmd.idName), logInfo.idWidth)
-
+		# Get the duration of the command
+		# getAge was written to display modification times; that's why it's called "Age";
+		# in this case we are using to show human readable command duration like "15h18m"
 		for cmd in logInfo.commands.values():
 			cmd.duration = basics.getAge(
 				datetime.datetime.fromtimestamp(time.mktime(cmd.entry.t)),
@@ -308,6 +419,33 @@ class Runxlog(command.Runner):
 			cmd.duration = cmd.duration.strip('+')
 
 		print
+
+		if xlogCmd.options.chose(showOption):
+			cmdKey = xlogCmd.get(showOption)
+			cmd = logInfo.commands.get(cmdKey)
+			if not cmd:
+				raise sched.ShortError('command {cmdKey} not found in {logPath}'.format(**vars()))
+
+			print(cmd.fmt())
+			print(str(cmd.failure or cmd.finalStatus))
+			# TODO: print the engine stats here
+
+			print("Found {} warnings".format(len(cmd.warnings)))
+			if not cmd.warnings:
+				return
+			categories = sorted({w.category for w in filter(lambda w: not w.ignore, cmd.warnings)})
+			wlists = [filter(lambda w: w.category == wt and not w.ignore, cmd.warnings) for wt in categories]
+			wcounts = [len(wl) for wl in wlists]
+			print("warning types:")
+			for category, n in zip(categories, wcounts):
+				print("  {}: {}".format(category, n))
+			print("first two of each type...")
+			for wl in wlists:
+				for w in wl[:2]:
+					print w.text
+
+			return
+
 		print('== Indexes ==')
 		nameWidth = 0
 		for name in logInfo.indexes:
@@ -316,20 +454,22 @@ class Runxlog(command.Runner):
 		for name, d in logInfo.indexes.items():
 			print('{:{nameWidth}}  {}, {}'.format(name, d['source'], d.get('target', ''), nameWidth=nameWidth))
 
+		logInfo.getWidths()
 		print
 		print('== Commands ==')
 		for cmd in logInfo.commands.values():
-			print str(cmd)
+			print cmd.fmt(long=xlogCmd.options.chose(longOption))
 
  		if 0:
 			yield
-
 
 desc = command.Desc(
 	"xlog",
 	[
 		logFileOption,
 		lineNumbersOption,
+		longOption,
+		showOption,
 	],
 	"Read the log to summarize commands and errors and optionally repair targets",
 	npaths=None,
