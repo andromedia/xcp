@@ -24,7 +24,7 @@ maxPendOption = args.OptionInfo('-maxpend', 'readahead limit', args.Types.Int, a
 
 Stats = ['blocks',]
 
-# xcp diag -run xlog.py will run us here
+# xcp diag -run bigfile.py will run us here
 # A quirk of running it this way is that our log file will be /opt/NetApp/xFiles/xcp/xcp.x1.log
 def run(argv):
 	xcp.xcp(argv)
