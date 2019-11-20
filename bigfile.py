@@ -10,9 +10,10 @@
 # USAGE
 # The script dynamically adds a new "bigfile" command; run it as follows:
 # xcp diag -run bigfile.py help bigfile
-# xcp diag -run bigfile.py bigfile [options] source-file-path
-# xcp diag -run bigfile.py bigfile copy [options] source-file-path target-path
-# Target-path could be a file or a directory (in which to create or replace a file)
+# xcp diag -run bigfile.py bigfile [options] <source>
+# xcp diag -run bigfile.py bigfile copy [options] <source> <target>
+# Source has to be a file
+# For copy, the target can be either a file or a directory where it will create or replace the target file
 
 import os
 import rd
