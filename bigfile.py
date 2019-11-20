@@ -76,7 +76,7 @@ class Worker(sched.Task):
 		# The gate is like a semaphore to throttle reads
 		gate = sched.Gate(self.options.get(maxPendOption), 'readahead limit')
 
-		while offset <= end:
+		while offset < end:
 			# Engine gates us here when maximum IO's are pending
 			yield (gate, None)
 
