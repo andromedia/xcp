@@ -58,7 +58,7 @@ class RunBigfile(command.Runner):
 				print('creating target file {}/{}'.format(cmd.target, f.name))
 				yield (rd.CreateCopyTask(f, cmd.target.root, f.name), None)
 
-		chunk = f.a.size / self.engine.parallel
+		chunk = f.a.size / nproc
 		chunk = bs*(chunk/bs)
 		b2c = chunk/bs
 		print('file size {}, parallel workers {}, chunksize {} bytes = {} = {} x {}'.format(
