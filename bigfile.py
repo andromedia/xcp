@@ -135,7 +135,8 @@ class Worker(sched.Task):
 
 class Write1(sched.SimpleTask):
 	def gRun(self, f, offset, data, writeGate):
-		# All writes are stable with ONTAP; just using UNSTABLE mode in case the target is non-ONTAP
+		# All writes are stable with ONTAP no matter what mode we use here
+		# Just using UNSTABLE mode in case the target is non-ONTAP (e.g. linux) it might be faster
 		yield (f.write(offset, data, stable=nfs3.Stable_mode.UNSTABLE), None)
 		sched.engine.stats['writes'] += 1
 		writeGate.leave()
