@@ -55,7 +55,7 @@ class RunBigfile(command.Runner):
 				print('using existing target file {}'.format(cmd.target.root))
 				f.copy = cmd.target.root
 			else:
-				print('creating target file {}/{}'.format(cmd.target, f.name))
+				print('creating target file {}/{}'.format(cmd.target.root, f.name))
 				yield (rd.CreateCopyTask(f, cmd.target.root, f.name), None)
 
 		chunk = f.a.size / nproc
