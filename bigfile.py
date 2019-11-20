@@ -46,6 +46,9 @@ class RunBigfile(command.Runner):
 		assert f.a.type == nfs3.REG, 'source type must be regular file'
 		assert f.a.size > nproc*bs, 'source file is too small ({})'.format(fmts(f.a.size))
 
+		# Safety guard so code bugs won't be able to write to the source
+		cmd.source.nfsclient.setReadOnly()
+
 		if cmd.desc == copyDesc:
 			print('target: {}'.format(cmd.target.root))
 			if cmd.target.root.a.type == nfs3.REG:
