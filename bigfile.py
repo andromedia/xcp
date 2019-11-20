@@ -42,7 +42,7 @@ class RunBigfile(command.Runner):
 			fmts(f.a.size), nproc, chunk, fmts(chunk), b2c, fmts(bs)
 		))
 		print('workers x blocks = {}, readahead {}'.format(nproc * b2c, self.options.get(maxPendOption)))
-		remainder = f.a.size - f.a.size/chunk
+		remainder = f.a.size - chunk*(f.a.size/chunk)
 		if (remainder):
 			self.log.warn('not processing remainder {} bytes'.format(remainder), out=True)
 
