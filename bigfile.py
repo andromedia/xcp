@@ -29,7 +29,7 @@ from basics import formatSize as fmts
 
 maxPendOption = args.OptionInfo('-maxpend', 'readahead limit', args.Types.Int, arg='# of requests', default=8)
 
-Stats = ['blocks', 'writes']
+Stats = ['reads', 'writes']
 
 # xcp diag -run bigfile.py will run us here
 # A quirk of running it this way is that our log file will be /opt/NetApp/xFiles/xcp/xcp.x1.log
@@ -58,7 +58,7 @@ class RunBigfile(command.Runner):
 				print('creating target file {}/{}'.format(cmd.target.root, f.name))
 				yield (rd.CreateCopyTask(f, cmd.target.root, f.name), None)
 
-		chunk = f.a.size / nproc
+		chunk = f.a.size/nproc
 		chunk = bs*(chunk/bs)
 		b2c = chunk/bs
 		print('file size {}, parallel workers {}, chunksize {} bytes = {} = {} x {}'.format(
@@ -88,7 +88,7 @@ class RunBigfile(command.Runner):
 			# We don't really need to commit with ONTAP; just doing it in case linux is the target
 			yield (f.copy.commit(), None)
 
-		print('Workers complete.  Processed {} blocks'.format(sched.engine.stats['blocks']))
+		print('Workers complete.  Processed {} blocks'.format(sched.engine.stats['reads']))
 
 class Worker(sched.Task):
 	# Using process=True tells the engine to fork a process to run this task
@@ -105,49 +105,38 @@ class Worker(sched.Task):
 		self.log.log('started worker {} offset {} n {} remainder {}'.format(os.getpid(), offset, n, remainder))
 		# The gate is like a semaphore to throttle reads
 		gate = sched.Gate(self.options.get(maxPendOption), 'readahead limit')
-		# If we are copying, create a writeGate which each read task will pass to a write task
-		if f.copy:
-			writeGate = sched.Gate(self.options.get(maxPendOption), 'pending write limit')
-		else:
-			writeGate = None
 
 		while offset < end:
 			# Engine gates us here when maximum IO's are pending
 			yield (gate, None)
 
 			# Create the task; sched's global engine automatically puts it on the runq
-			Read1(f, offset, bs, gate, writeGate=writeGate)
+			Read1(f, offset, bs).leaveWhenFinished(gate)
 
 			offset += bs
 
-			sched.engine.stats['blocks'] += 1
+			sched.engine.stats['reads'] += 1
 
 		if remainder:
 			yield (gate, None)
-			Read1(f, offset, remainder, gate, writeGate=writeGate)
+			Read1(f, offset, remainder).leaveWhenFinished(gate)
 
 		# Wait for any pending Read1 tasks to finish
 		if not gate.close():
 			yield
 
-		if writeGate and not writeGate.close():
-			yield
-
 class Write1(sched.SimpleTask):
-	def gRun(self, f, offset, data, writeGate):
+	def gRun(self, f, offset, data):
 		# All writes are stable with ONTAP no matter what mode we use here
 		# Just using UNSTABLE mode in case the target is non-ONTAP (e.g. linux) it might be faster
 		yield (f.write(offset, data, stable=nfs3.Stable_mode.UNSTABLE), None)
 		sched.engine.stats['writes'] += 1
-		writeGate.leave()
 
 class Read1(sched.SimpleTask):
-	def gRun(self, f, offset, count, gate, writeGate=None):
+	def gRun(self, f, offset, count):
 		call = (yield (f.read(offset, count), None))
-		gate.leave()
-		if writeGate:
-			yield (writeGate, None)
-			Write1(f.copy, offset, call.res.data, writeGate)
+		if f.copy:
+			yield (Write1(f.copy, offset, call.res.data), None)
 
 options = [
 	maxPendOption,
