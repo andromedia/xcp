@@ -94,7 +94,7 @@ def tryResume(log, argv, cmd, error):
 	resumecmd += ' -retry {curTry} -maxtries {maxTries}'.format(**vars())
 
 	log('Initiating resume {}/{}'.format(curTry, maxTries), out=True)
-	cmd = 
+
 	os.system(
 		'(sleep {time}; echo "AUTORESUME: {resumecmd}"; {resumecmd})&'.format(**vars())
 	)
