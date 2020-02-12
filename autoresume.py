@@ -39,7 +39,6 @@ import parseargs as args
 # These are the ops which might get ESTALE from the SG NAS bridge
 from nfs3 import SETATTR, WRITE, CREATE, MKDIR, SYMLINK, MKNOD, REMOVE, RMDIR, LINK, RENAME, COMMIT
 
-XCP_PATH = 'xcp' # replace this with absolute path if needed
 modops = {nfs3.Procs.names[code] for code in (
 	SETATTR, WRITE, CREATE, MKDIR, SYMLINK, MKNOD, REMOVE, RMDIR, LINK, RENAME, COMMIT
 )}
