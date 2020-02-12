@@ -4,8 +4,8 @@
 # Utility for StorageGrid NAS Bridge workaround
 # Try to resume xcp copies automatically when commands fail with EStale,
 # because SG intermittently returns an Estale error for CREATE/MKDIR/SETATTR.
-# There's an option for max retries.  If a retry runs more than a minute,
-# then the retry counter is reset to 0.
+# There's an option for max retries.  If a resume runs more than a minute,
+# then the resume counter is reset to 0.
 
 # Updates: 
 #   11 February 2020 - created (Peter Schay)
@@ -43,15 +43,13 @@ modops = {nfs3.Procs.names[code] for code in (
 	SETATTR, WRITE, CREATE, MKDIR, SYMLINK, MKNOD, REMOVE, RMDIR, LINK, RENAME, COMMIT
 )}
 
-curTryOption = args.OptionInfo('-retry', 'current retry number', args.Types.Int, arg='#', default=0)
-maxTryOption = args.OptionInfo('-maxtries', 'current retry number', args.Types.Int, arg='#', default=3)
-myOpts = [curTryOption, maxTryOption]
+curResumeOption = args.OptionInfo('-nresume', 'current resume number', args.Types.Int, arg='#', default=0)
+maxResumeOption = args.OptionInfo('-maxresumes', 'max number of resumes', args.Types.Int, arg='#', default=3)
+myOpts = [curResumeOption, maxResumeOption]
 scan.copyOptions.extend(myOpts)
 resume.resumeOptions.extend(myOpts)
 
-# The xcp diag -run autoresume.py command will import this module and call this run function
 def run(argv):
-	# Start a new xcp command for the actual copy or resume operation
 	xcp.xcp(argv, driver=AutoResume(argv), warn=False)
 
 # Async task gets the events published by the XCP engine
@@ -68,7 +66,7 @@ class AutoResume(sched.SimpleTask):
 				return
 
 # Start an xcp resume command using the same executable path
-# to call this python module again so the next resume can also retry.
+# to call this python module again so the next resume can also work.
 # Use os.system to kick it off in a separate process, so that we can
 # immediately exit and finish logging and release resources from the
 # xcp that's currently running.
@@ -82,20 +80,20 @@ def tryResume(log, argv, cmd, error):
 		sys.executable, argv[0], cmd.index.name
 	)
 	time = 5 # new shell command will sleep this long before starting xcp resume
-	curTry = cmd.options.get(curTryOption)
-	maxTries = cmd.options.get(maxTryOption)
-	if curTry and cmd.task.elapsed() > 60:
-		log('Command lasted {}s so it made progress; resetting the retry count to 0'.format(task.elapsed()), out=True)
-		curTry = 0
+	curResume = cmd.options.get(curResumeOption)
+	maxResumes = cmd.options.get(maxResumeOption)
+	if curResume and cmd.task.elapsed() > 60:
+		log('Command lasted {}s so it made progress; resetting the resume count to 0'.format(task.elapsed()), out=True)
+		curResume = 0
 
-	if curTry >= maxTries:
+	if curResume >= maxResumes:
 		log('Failed.  No more retries.', out=True)
 		return
 
-	curTry += 1
-	resumecmd += ' -retry {curTry} -maxtries {maxTries}'.format(**vars())
+	curResume += 1
+	resumecmd += ' -nresume {curResume} -maxresumes {maxResumes}'.format(**vars())
 
-	log('Initiating resume {}/{}'.format(curTry, maxTries), out=True)
+	log('Initiating resume {}/{}'.format(curResume, maxResumes), out=True)
 	os.system(
 		'(sleep {time}; echo "AUTORESUME: {resumecmd}"; {resumecmd})&'.format(**vars())
 	)
