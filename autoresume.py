@@ -49,7 +49,9 @@ myOpts = [curTryOption, maxTryOption]
 scan.copyOptions.extend(myOpts)
 resume.resumeOptions.extend(myOpts)
 
+# The xcp diag -run autoresume.py command will import this module and call this run function
 def run(argv):
+	# Start a new xcp command for the actual copy or resume operation
 	xcp.xcp(argv, driver=AutoResume(argv), warn=False)
 
 # Async task gets the events published by the XCP engine
