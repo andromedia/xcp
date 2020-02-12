@@ -83,7 +83,7 @@ def tryResume(log, argv, cmd, error):
 	curTry = cmd.options.get(curTryOption)
 	maxTries = cmd.options.get(maxTryOption)
 	if curTry and cmd.task.elapsed() > 60:
-		log('Command lasted {}s so it made progress; resetting the retry count to 0', out=True)
+		log('Command lasted {}s so it made progress; resetting the retry count to 0'.format(task.elapsed()), out=True)
 		curTry = 0
 
 	if curTry >= maxTries:
