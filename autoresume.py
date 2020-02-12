@@ -82,8 +82,9 @@ def tryResume(log, argv, cmd, error):
 	time = 5 # new shell command will sleep this long before starting xcp resume
 	curResume = cmd.options.get(curResumeOption)
 	maxResumes = cmd.options.get(maxResumeOption)
+
 	if curResume and cmd.task.elapsed() > 60:
-		log('Command lasted {}s so it made progress; resetting the resume count to 0'.format(task.elapsed()), out=True)
+		log('Command lasted {}s so it made progress; resetting the resume count to 0'.format(cmd.task.elapsed()), out=True)
 		curResume = 0
 
 	if curResume >= maxResumes:
