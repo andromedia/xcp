@@ -95,9 +95,6 @@ def tryResume(log, argv, cmd, error):
 
 	log('Initiating resume {}/{}'.format(curTry, maxTries), out=True)
 
-	os.system(
-		'(sleep {time}; echo "AUTORESUME: {resumecmd}"; {resumecmd})&'.format(**vars())
-	)
 	log('Kicked off next cmd to run in {}s; current command now exiting.'.format(time), out=True)
 	# The system() process is running and will start a new xcp after the sleep
 	# The current xcp returns at this point and will exit very soon
