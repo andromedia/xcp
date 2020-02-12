@@ -100,4 +100,5 @@ def tryResume(log, argv, cmd, error):
 	)
 	log('Kicked off next cmd to run in {}s; current command now exiting.'.format(time), out=True)
 	# The system() process is running and will start a new xcp after the sleep
-	# The current xcp returns here and will exit very soon
+	# The current xcp returns at this point and will exit very soon
+
