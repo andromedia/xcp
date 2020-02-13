@@ -79,9 +79,7 @@ def tryResume(log, argv, cmd, error):
 	if reqtype not in modops:
 		log('{} is not in nfs3 target modification ops; not trying resume.'.format(reqtype))
 		return
-	resumecmd = '{} diag -run {} resume -id {}'.format(
-		sys.executable, argv[0], cmd.index.name
-	)
+
 	time = 5 # new shell command will sleep this long before starting xcp resume
 	curResume = cmd.options.get(curResumeOption)
 	maxResumes = cmd.options.get(maxResumeOption)
@@ -93,6 +91,10 @@ def tryResume(log, argv, cmd, error):
 	if curResume >= maxResumes:
 		log('Failed.  No more retries.', out=True)
 		return
+
+	resumecmd = '{} diag -run {} resume -id {}'.format(
+		sys.executable, argv[0], cmd.index.name
+	)
 
 	curResume += 1
 	resumecmd += ' -nresume {curResume} -maxresumes {maxResumes}'.format(**vars())
