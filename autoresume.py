@@ -19,11 +19,11 @@ import os
 import sys
 
 if 'nfs3' not in sys.builtin_module_names:
-		print('Please run with "xcp diag -run ./autoresume.py" followed by a normal xcp command line\n'
-			'For example:\n'
-			'# xcp diag -run ./autoresume.py copy server:/export/dir targetserver:/export/dir'
-		)
-		sys.exit(1)
+	print('Please run with "xcp diag -run ./autoresume.py" followed by a normal xcp command line\n'
+		'For example:\n'
+		'# xcp diag -run ./autoresume.py copy server:/export/dir targetserver:/export/dir'
+	)
+	sys.exit(1)
 
 # Python modules which might not be in the local system, but are always built into xcp
 import subprocess
@@ -49,7 +49,10 @@ myOpts = [curResumeOption, maxResumeOption]
 scan.copyOptions.extend(myOpts)
 resume.resumeOptions.extend(myOpts)
 
+# The xcp diag -run autoresume.py command will import this module and call run()
 def run(argv):
+	# Call xcp's main entry point to start the actual copy or resume command
+	# Start the driver task which can detect a fatal error and try to resume
 	xcp.xcp(argv, driver=AutoResume(argv), warn=False)
 
 # Async task gets the events published by the XCP engine
