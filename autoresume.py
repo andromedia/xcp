@@ -57,6 +57,8 @@ def run(argv):
 
 # Async task gets the events published by the XCP engine
 # Look for finished command with an EStale error
+# Update: also can autoresume after a LOOKUP gets ENoent
+# (target lookup happens when a mkdir fails)
 class AutoResume(sched.SimpleTask):
 	def gRun(self, argv):
 		self.stream = self.engine.origin.subscribe()
@@ -64,7 +66,7 @@ class AutoResume(sched.SimpleTask):
 			evt = (yield self.stream)
 
 			if evt.type == event.Types.FinishCommand:
-				if isinstance(evt.error, nfs3.EStale):
+				if isinstance(evt.error, (nfs3.EStale, nfs3.ENoent)):
 					tryResume(self.log.log, argv, evt.runner.cmd, evt.error)
 				return
 
@@ -74,10 +76,22 @@ class AutoResume(sched.SimpleTask):
 # immediately exit and finish logging and release resources from the
 # xcp that's currently running.
 def tryResume(log, argv, cmd, error):
-	reqtype = str(error).split()[1]
-	log('Finished command got ESTALE error on request {}'.format(reqtype), out=True)
-	if reqtype not in modops:
-		log('{} is not in nfs3 target modification ops; not trying resume.'.format(reqtype))
+	errwords = str(error).split()
+	reqtype = errwords[1]
+	log('Finished command got {} error on request {}'.format(error.__class__.__name__, reqtype), out=True)
+	if reqtype not in modops and reqtype != 'LOOKUP':
+		log('{} is not a target modification op and not a LOOKUP; not trying resume.'.format(reqtype))
+		return
+
+	if reqtype == 'LOOKUP':
+		# Unfortunately we don't have references in the error object to know where it came from,
+		# so we have to parse the string.  Format is "nfs3 LOOKUP 'a' in 'server:/export/d'"
+		lookupd = errwords[4].strip("'")
+		if not lookupd.startswith(str(cmd.index.target)):
+			log("Lookupd '{}' is not on target '{}'; not autoresuming.".format(lookupd, cmd.index.target))
+			return
+	elif type(error) != nfs3.EStale:
+		# it is a modop (CREATE/MKDIR/...) and got ENoent; that's not a known scenario to do an autoresume
 		return
 
 	time = 5 # new shell command will sleep this long before starting xcp resume
