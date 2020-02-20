@@ -81,9 +81,10 @@ class AutoResume(sched.SimpleTask):
 
 		yield (FindChildren_Orig(cmd, dr, long=long, verbose=verbose), None)
 
-# Wrap this class from xcp's diff module so we can get all the inProgress dirs
+# Extend the FindChildren task from xcp's diff module so we can get all the inProgress dirs
 # The first pass through the index got the filehandles of in-progress dirs
-# the second pass, diff.FindChildren_Orig, gets their ancestry
+# The second pass, diff.FindChildren_Orig, gets their ancestry so we call that
+# and then run OpenTasks on the target for each in-progress dir
 class FindChildrenAndThenLookupDirs(sched.SimpleTask):
 	def gRun(self, cmd, dr, verbose=False, long=False):
 		self.name = "autoresume path reopener"
