@@ -35,6 +35,9 @@ import sched
 import event
 import scan, resume
 import parseargs as args
+import idx
+import diff
+import client
 
 # These are the ops which might get ESTALE from the SG NAS bridge
 from nfs3 import SETATTR, WRITE, CREATE, MKDIR, SYMLINK, MKNOD, REMOVE, RMDIR, LINK, RENAME, COMMIT
@@ -55,6 +58,8 @@ def run(argv):
 	# Start the driver task which can detect a fatal error and try to resume
 	xcp.xcp(argv, driver=AutoResume(argv), warn=False)
 
+FindChildren_Orig = diff.FindChildren
+
 # Async task gets the events published by the XCP engine
 # Look for finished command with an EStale error
 # Update: also can autoresume after a LOOKUP gets ENoent
@@ -62,6 +67,7 @@ def run(argv):
 class AutoResume(sched.SimpleTask):
 	def gRun(self, argv):
 		self.stream = self.engine.origin.subscribe()
+		diff.FindChildren = FindChildrenAndStatDirs
 		while 1:
 			evt = (yield self.stream)
 
@@ -69,6 +75,29 @@ class AutoResume(sched.SimpleTask):
 				if isinstance(evt.error, (nfs3.EStale, nfs3.ENoent)):
 					tryResume(self.log.log, argv, evt.runner.cmd, evt.error)
 				return
+
+		yield (FindChildren_Orig(cmd, dr, long=long, verbose=verbose), None)
+
+# Wrap the class in xcp's diff module so we can get all the inProgress dirs
+class FindChildrenAndStatDirs(sched.SimpleTask):
+	def gRun(self, cmd, dr, verbose=False, long=False):
+		self.name = "autoresume path reopener"
+		sr = self.result = yield (FindChildren_Orig(cmd, dr, verbose=verbose, long=long), None)
+
+		self.log.log("Looking up {} in-progress dirs".format(len(dr.inProgress)), out=True)
+		tasks = []
+		for dfh in dr.inProgress.keys():
+			dtuple = sr.ancestry[dfh]
+			d = idx.IFile(dtuple, mount=cmd.index.source, ancestry=dr.ancestry)
+			dcopy = idx.TargetIFile(d, cmd.index.targetMount, name=None)
+			tasks.append(client.OpenTask(dcopy.nfsclient.root, dcopy.getPath(full=False)))
+
+		yield (sched.GateCalls(tasks, "lookup all the in-progress dirs"), None)
+		success = sum(1 for t in tasks if not t.error)
+		self.log.log("{} lookup tasks succeeded; {} failed".format(success, len(tasks)-success), out=True)
+		for t in tasks:
+			if t.error:
+				self.log.log("task {}: {}".format(t, t.error), out=True)
 
 # Start an xcp resume command using the same executable path
 # to call this python module again so the next resume can also work.
