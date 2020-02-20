@@ -58,6 +58,9 @@ def run(argv):
 	# Start the driver task which can detect a fatal error and try to resume
 	xcp.xcp(argv, driver=AutoResume(argv), warn=False)
 
+# We will intercept the resume command's work to enable an experimental workaround
+# right before it does the second pass through the index to find in-progress dirs.
+# Use this global to save the original version of diff's FindChildren task
 FindChildren_Orig = diff.FindChildren
 
 # Async task gets the events published by the XCP engine
@@ -78,7 +81,9 @@ class AutoResume(sched.SimpleTask):
 
 		yield (FindChildren_Orig(cmd, dr, long=long, verbose=verbose), None)
 
-# Wrap the class in xcp's diff module so we can get all the inProgress dirs
+# Wrap this class from xcp's diff module so we can get all the inProgress dirs
+# The first pass through the index got the filehandles of in-progress dirs
+# the second pass, diff.FindChildren_Orig, gets their ancestry
 class FindChildrenAndStatDirs(sched.SimpleTask):
 	def gRun(self, cmd, dr, verbose=False, long=False):
 		self.name = "autoresume path reopener"
