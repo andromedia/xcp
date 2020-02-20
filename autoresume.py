@@ -70,7 +70,7 @@ FindChildren_Orig = diff.FindChildren
 class AutoResume(sched.SimpleTask):
 	def gRun(self, argv):
 		self.stream = self.engine.origin.subscribe()
-		diff.FindChildren = FindChildrenAndStatDirs
+		diff.FindChildren = FindChildrenAndThenLookupDirs
 		while 1:
 			evt = (yield self.stream)
 
@@ -84,20 +84,26 @@ class AutoResume(sched.SimpleTask):
 # Wrap this class from xcp's diff module so we can get all the inProgress dirs
 # The first pass through the index got the filehandles of in-progress dirs
 # the second pass, diff.FindChildren_Orig, gets their ancestry
-class FindChildrenAndStatDirs(sched.SimpleTask):
+class FindChildrenAndThenLookupDirs(sched.SimpleTask):
 	def gRun(self, cmd, dr, verbose=False, long=False):
 		self.name = "autoresume path reopener"
 		sr = self.result = yield (FindChildren_Orig(cmd, dr, verbose=verbose, long=long), None)
 
 		self.log.log("Looking up {} in-progress dirs".format(len(dr.inProgress)), out=True)
+		# Build a list of client.OpenTask instances to send component-by-component
+		# lookup requests for each of the dirs.  There will be a lot of redundant lookups
+		# at the beginning but they are batched and parallelized so it should run fast enough
 		tasks = []
 		for dfh in dr.inProgress.keys():
 			dtuple = sr.ancestry[dfh]
 			d = idx.IFile(dtuple, mount=cmd.index.source, ancestry=dr.ancestry)
 			dcopy = idx.TargetIFile(d, cmd.index.targetMount, name=None)
-			tasks.append(client.OpenTask(dcopy.nfsclient.root, dcopy.getPath(full=False)))
+			# Create a task using ready=False so that sched.GateTasks can decide when to start it
+			tasks.append(client.OpenTask(dcopy.nfsclient.root, dcopy.getPath(full=False), ready=False))
 
-		yield (sched.GateCalls(tasks, "lookup all the in-progress dirs"), None)
+		# Run all the OpenTasks.  GateTasks keeps 100 tasks active at a time until all are
+		# complete.  OpenTask errors, if any, won't be raised during this yield
+		yield (sched.GateTasks(tasks, name="lookup all the in-progress dirs"), None)
 		success = sum(1 for t in tasks if not t.error)
 		self.log.log("{} lookup tasks succeeded; {} failed".format(success, len(tasks)-success), out=True)
 		for t in tasks:
