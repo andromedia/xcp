@@ -9,6 +9,7 @@
 
 # Updates: 
 #   11 February 2020 - created (Peter Schay)
+#   20 February - Many updates; now handles ENoEnt on lookup after mkdir and adds a component lookup workaround
 #
 # USAGE
 # xcp diag -run autoresume.py [regular xcp args]
