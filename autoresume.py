@@ -4,8 +4,8 @@
 # Utility for StorageGrid NAS Bridge workaround
 # Try to resume xcp copies automatically when commands fail with EStale,
 # because SG intermittently returns an Estale error for CREATE/MKDIR/SETATTR.
-# There's an option for max retries.  If a resume runs more than a minute,
-# then the resume counter is reset to 0.
+# There's an option for max attempts.  If a resume runs more than a minute,
+# then the resume attempts counter is reset to 0.
 
 # Updates: 
 #   11 February 2020 - created (Peter Schay)
